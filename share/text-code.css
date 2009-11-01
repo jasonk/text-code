@@ -1,0 +1,58 @@
+.text-code {
+    font-family:    monospace;
+    border:         1px solid #555555;
+    overflow:       auto;
+    width:          50em;
+    margin:         0;
+}
+.text-code pre.text-code-html {
+    background:     #0a0a0a;
+    color:          #cccccc;
+    border:         1px solid #0a0a0a;
+}
+.text-code pre {
+    position:       relative;
+    left:           0;
+    top:            0;
+    right:          0;
+    padding:        2em;
+    margin:         0;
+}
+.text-code-tools {
+    margin:         0;
+    padding:        0;
+    text-align:     right;
+}
+span.text-code-file {
+    float:          left;
+} 
+span.text-code-buttons {
+    float:          right;
+    display:        none;
+}
+.text-code .text-code-html span.Alert { color: #0000ff; }
+.text-code .text-code-html span.BaseN { color: #007f00; }
+.text-code .text-code-html span.BString { color: #c9a7ff; }
+.text-code .text-code-html span.Char { color: #ff00ff; }
+.text-code .text-code-html span.Comment { color: #cc9900; }
+.text-code .text-code-html span.DataType { color: #00ff55; }
+.text-code .text-code-html span.DecVal { color: #00ffff; }
+.text-code .text-code-html span.Error { color: #ff0000; }
+.text-code .text-code-html span.Float { color: #5599ff; }
+.text-code .text-code-html span.Function { color: #3344ff; }
+.text-code .text-code-html span.IString { color: #ff0000; }
+.text-code .text-code-html span.Keyword { color: #11ffff; font-weight: bold; }
+.text-code .text-code-html span.Operator { color: #00ff33; font-weight: bold; }
+.text-code .text-code-html span.Others { color: #b03060; }
+.text-code .text-code-html span.RegionMarker { color: #96b9ff; }
+.text-code .text-code-html span.Reserved { color: #9b30ff; font-weight: bold; }
+.text-code .text-code-html span.String { color: #ffaa55; }
+.text-code .text-code-html span.Variable { color: #ffff00; }
+.text-code .text-code-html span.Warning { color: #0000ff; }
+.text-code .text-code-html span.LineNo {
+    color:          #fff;
+    font-weight:    bold;
+    margin-right:   1em;
+    padding-right:  2px;
+    border-right:   1px solid grey;
+}
