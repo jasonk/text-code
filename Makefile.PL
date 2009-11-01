@@ -8,7 +8,7 @@ requires( $_ ) for qw(
     MooseX::Types
     MooseX::Types::Path::Class
     MooseX::Types::URI
-    namespace::claen
+    namespace::clean
     Syntax::Highlight::Engine::Kate
 );
 
