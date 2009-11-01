@@ -2,59 +2,20 @@ package Text::Code;
 use strict; use warnings;
 our $VERSION = '0.01';
 use Moose;
+use Text::Code::Types qw( OptionalFile );
 use MooseX::Types::Moose qw( Str Int ArrayRef HashRef Maybe );
 use MooseX::Types::URI qw( Uri );
-use MooseX::Types::Path::Class qw( File );
 use Text::Code::Section;
-use Syntax::Highlight::Engine::Kate;
+use Text::Code::Registry;
 use feature 'state';
+use Carp qw( croak );
+use Module::Find qw();
 use namespace::clean -except => 'meta';
 
-our $default_language;
-
-our %extension_map = qw(
-    asp         ASP
-    awk         AWK
-    bash        Bash
-    c           C
-    conf        Apache_Configuration
-    css         CSS
-    cpp         Cplusplus
-    diff        Diff
-    patch       Diff
-    email       Email
-    mail        Email
-    html        HTML
-    ini         INI_Files
-    jsp         JSP
-    java        Java
-    js          JavaScript
-    ldif        LDIF
-    pl          Perl
-    pm          Perl
-    pod         Perl
-    t           Perl
-    ps          PostScript
-    py          Python
-    spec        RPM_Spec
-    rb          Ruby
-    sql         SQL
-    pgsql       SQL_PostgreSQL
-    mysql       SQL_MySQL
-    xml         XML
-    sh          Bash
-);
-
-our %filename_map = (
-    'changes'           => 'ChangeLog',
-    'makefile'          => 'Makefile',
-);
-
-has 'extension_map' => ( is => 'rw', isa => HashRef, lazy_build => 1 );
-sub _build_extension_map { return { %extension_map } }
-
-has 'filename_map'  => ( is => 'rw', isa => HashRef, lazy_build => 1 );
-sub _build_filename_map { return { %filename_map } }
+{
+    my $REGISTRY = Text::Code::Registry->new;
+    sub REGISTRY { $REGISTRY }
+}
 
 has 'id'        => ( is => 'rw', isa => Str, lazy_build => 1 );
 sub _build_id { return time.'_'.int(rand 1000 ) }
@@ -62,87 +23,115 @@ sub _build_id { return time.'_'.int(rand 1000 ) }
 has 'uri'       => ( is => 'rw', isa => Uri, coerce => 1, lazy_build => 1 );
 sub _build_uri { return URI->new( shift->file->basename, 'http' ) }
 
-has 'file'      => (
-    is => 'ro', isa => File, coerce => 1, required => 1,
-    handles => [qw( basename dir )],
-);
+has 'filename'  => ( is => 'rw', isa => Maybe[Str], lazy_build => 1 );
+sub _build_filename {
+    my $self = shift;
+    if ( $self->has_file ) { return $self->file->stringify }
+    return;
+}
 
-has 'raw'       => ( is => 'rw', isa => Str, lazy_build => 1 );
+has 'basename' => ( is => 'rw', isa => Maybe[Str], lazy_build => 1 );
+sub _build_basename {
+    my $self = shift;
+    if ( $self->has_file ) { return $self->file->basename }
+    if ( $self->has_filename ) {
+        return Path::Class::File->new( $self->filename )->basename;
+    }
+    return;
+}
+
+has 'dirname' => ( is => 'rw', isa => Maybe[Str], lazy_build => 1 );
+sub _build_dirname {
+    my $self = shift;
+    if ( $self->has_file ) { return $self->file->dirname }
+    return;
+}
+
+has 'extension' => ( is => 'rw', isa => Maybe[Str], lazy_build => 1 );
+sub _build_extension {
+    my $self = shift;
+    if ( $self->filename =~ /.+\.(\w{1,10})$/ ) { return lc( $1 ) }
+    return;
+}
+
+has 'file'      => (
+    is => 'rw', isa => OptionalFile, coerce => 1, lazy_build => 1,
+);
+sub _build_file {
+    my $self = shift;
+    if ( $self->has_filename ) {
+        if ( -f $self->filename ) {
+            return to_File( $self->filename );
+        }
+    }
+    return;
+}
+
+has 'raw' => ( is => 'rw', isa => Str, lazy_build => 1 );
 sub _build_raw { return scalar shift->file->slurp }
 
 has "raw_content"   => (
     is => 'ro', isa => ArrayRef, lazy_build => 1, auto_deref => 1
 );
-sub _build_raw_content { return [ split( "\n", shift->raw ) ] }
+sub _build_raw_content { return [ split( "\n", shift->raw, -1 ) ] }
 
-has "html_content"   => (
+has 'starting_line_number' => ( is => 'rw', isa => Int, default => 1 );
+
+has 'registry' => (
+    is => 'rw', isa => 'Text::Code::Registry', default => sub { REGISTRY() },
+);
+
+has 'html_content'   => (
     is => 'ro', isa => ArrayRef, lazy_build => 1, auto_deref => 1
 );
 sub _build_html_content {
     my $self = shift;
 
-    my $hl = Syntax::Highlight::Engine::Kate->new(
-        language        => $self->language,
-        substitutions   => {
-            '<'     => '&lt;',
-            '>'     => '&gt;',
-            '&'     => '&amp;',
-            ' '     => '&nbsp;',
-            "\t"    => '&nbsp;' x 4,
-            #"\n"    => "<br />\n",
-        },
-        format_table    => {
-            map {
-                ( $_ => [ qq{<span class="$_">}, qq{</span>} ] )
-            } qw(
-                Alert BaseN BString Char Comment DataType DecVal Error
-                Float Function IString Keyword Normal Operator Others
-                RegionMarker Reserved String Variable Warning
-            )
-        },
-    );
-    my @content = split( "\n", $hl->highlightText( $self->raw ) );
-    my $wide = length( scalar @content );
-    my $lnl = qq{<span class="LineNo">};
-    my $lnr = qq{</span>};
-    my $line = 1;
-    for ( @content ) {
-        my $x = ( '&nbsp;' x ( $wide - length( $line ) ) ).$line;
-        s/^/${lnl}${x}${lnr}/;
-        $line++;
+    my @content = $self->registry->highlight( $self );
+    if ( my $line = $self->starting_line_number ) {
+        my $wide = length( $line + $self->num_lines );
+        my $lnl = qq{<span class="LineNo">};
+        my $lnr = qq{</span>};
+        for ( @content ) {
+            my $x = ( '&nbsp;' x ( $wide - length( $line ) ) ).$line;
+            s/^/${lnl}${x}${lnr}/;
+            $line++;
+        }
     }
     return \@content;
 }
 
 has 'language'  => ( is => 'rw', isa => Str, lazy_build => 1 );
-sub _build_language {
+sub _build_language { $_[0]->registry->detect_language( $_[0] ) }
+
+has 'interpreter'   => ( is => 'ro', isa => Maybe[Str], lazy_build => 1 );
+sub _build_interpreter {
     my $self = shift;
-    my $basename = $self->basename || return;
-    if ( $basename =~ /\.(\w+)$/ ) {
-        if ( $self->has_extension_map && $self->extension_map->{ lc $1 } ) {
-            return $self->extension_map->{ lc $1 };
-        }
-        if ( $extension_map{ lc $1 } ) {
-            return $extension_map{ lc $1 };
-        }
-    }
-    if ( $self->has_filename_map && $self->filename_map->{ lc $basename } ) {
-        return $self->filename_map->{ lc $basename };
-    }
-    if ( $filename_map{ lc $basename } ) {
-        return $filename_map{ lc $basename };
-    }
-    if ( $self->has_default_language ) {
-        if ( defined $self->default_language ) {
-            return $self->default_language;
+
+    my @raw = $self->raw_content;
+    use Data::Dump qw( ddx );
+    local $_ = $raw[0] or return;
+    s/^#!// or return;  # drop the hashbang, if it doesn't have one,
+                        # then we can't detect the interpreter
+
+    my $interp;
+    if ( s/^(\S+)\s*// ) {
+        $interp = $1;
+        if ( $interp =~ /\benv$/ ) {
+            if ( s/^(\S+)\s*// ) { $interp = $1 }
         }
     }
-    if ( defined $default_language ) { return $default_language }
-    die "Unable to determine language of $basename\n";
+    return $interp;
 }
 
-has 'default_language' => ( is => 'rw', isa => Maybe[Str], lazy_build => 1 );
-sub _build_default_language { return $default_language }
+has 'interpreter_name'  => ( is => 'ro', isa => Maybe[Str], lazy_build => 1 );
+sub _build_interpreter_name {
+    my $self = shift;
+    my $interp = $self->interpreter or return;
+    return Path::Class::File->new( $interp )->basename;
+}
+
+has 'default_language' => ( is => 'rw', isa => Str, default => '' );
 
 has 'num_lines' => ( is => 'ro', isa => Int, lazy_build => 1 );
 sub _build_num_lines {
@@ -174,7 +163,7 @@ sub BUILDARGS {
                 return $class->SUPER::BUILDARGS( { file => $arg } );
             }
         }
-        die "JSK::Code->new expected path or Path::Class::File, got $arg";
+        croak "Text::Code->new expected path or Path::Class::File, got $arg";
     }
     return $class->SUPER::BUILDARGS( @_ );
 }
@@ -205,7 +194,7 @@ sub find_index {
     } elsif ( $text =~ /^\+(\d+)$/ ) {
         return $start + $1;
     } else {
-        die "Unable to find index from $text";
+        croak "Unable to find index from $text";
     }
 }
 
@@ -298,6 +287,11 @@ sub html_coverage {
     return wantarray ? @out : join( "\n", @out );
 }
 
+sub import {
+    my $class = shift;
+    Module::Find::useall( 'Text::Code::Engine' );
+}
+
 no Moose;
 __PACKAGE__->meta->make_immutable;
 1;
@@ -322,37 +316,11 @@ This module provides a management framework for source code highlighting.
 It was originally part of the L<Text::CodeBlog|Text::CodeBlog> module, but
 was split out as it became apparent that it could be very useful on it's own.
 
-=head1 CLASS VARIABLES
-
-=head2 %extension_map
-
-The C<%extension_map> variable holds a hash that maps file extensions to
-languages suitable for the hilighter.  You can modify the variable if you want
-to change the map for all instances of the class, or see the
-L<extension_map|/extension_map> method to change the map for one instance.
-
-When changing this map, not that the keys should be all lower case, or they
-won't match.
-
-=head2 %filename_map
-
-The C<%filename_map> variable holds a hash that maps filenames to
-languages suitable for the hilighter.  You can modify the variable if you want
-to change the map for all instances of the class, or see the
-L<filename_map|/filename_map> method to change the map for one instance.
-
-When changing this map, not that the keys should be all lower case, or they
-won't match, and that the match is done only against the L<basename|/basename>.
-
-=head2 $default_language
-
-This variable provides a default language, when all other methods of
-identifying the language for a file have failed, if this variable contains
-a defined value, then it will be used as the language.  Also see the
-L<default_language|/default_language> method for more information on default
-language settings.
-
 =head1 CLASS METHODS
+
+=head2 Text::Code->REGISTRY()
+
+Returns the global L<Text::Code::Registry|Text::Code::Registry> object.
 
 =head2 my $code = Text::Code->new( '/path/to/file' );
 
@@ -406,12 +374,11 @@ Clear the URI value from the object.
 
 =head2 basename
 
-Returns just the L<basename|Path::Class::File/basename> portion of the file
-path.
+Returns just the filename portion of the file path.
 
-=head2 dir
+=head2 dirname
 
-Returns just the L<directory|Path::Class::File/dir> portion of the file path.
+Returns just the directory portion of the file path.
 
 =head2 raw_content
 
@@ -457,54 +424,13 @@ Returns just the L<directory|Path::Class::File/dir> portion of the file path.
 
 =head2 html_coverage
 
-=head2 extension_map
-
-The extension map returns a hash reference that maps file extensions to
-languages.  This has the same effect as setting C<%extension_map>, but only
-affects this instance, rather than all instances.  If not set, then
-C<%extension_map> is used instead.
-
-=head2 has_extension_map
-
-Returns true if a per-instance extension map has been defined for this object.
-
-=head2 clear_extension_map
-
-Clear the per-instance extension map, causing this object to fall back to
-using C<%extension_map> instead.
-
-=head2 filename_map
-
-The filename map returns a hash reference that maps file names to
-languages.  This has the same effect as setting C<%filename_map>, but only
-affects this instance, rather than all instances.  If not set, then
-C<%filename_map> is used instead.
-
-=head2 has_filename_map
-
-Returns true if a per-instance filename map has been defined for this object.
-
-=head2 clear_filename_map
-
-Clear the per-instance filename map, causing this object to fall back to
-using C<%filename_map> instead.
-
 =head2 default_language
 
-This method provides a default language, when all other methods of
-identifying the language for a file have failed.  This has the same effect
-as setting the class variable C<$default_language>, but only affects this
-instance, rather than all instances.
-
-=head2 has_default_language
-
-Returns true if a per-instance default language has been defined for this
-object.
-
-=head2 clear_default_language
-
-Clear the per-instance default language, causing this object to fall back to
-using C<$default_language> instead.
+This method provides a default language, when all other methods of identifying
+the language for a file have failed.  If this is set for an object, then the
+language classifier will prefer this value as a default rather than using the
+default_language value from
+L<Text::Code::Registry|Text::Code::Registry/default_language>.
 
 =head1 INTERNAL METHODS
 
