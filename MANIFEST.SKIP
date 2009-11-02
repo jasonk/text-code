@@ -40,5 +40,5 @@
 
 # Don't include the MANIFEST.SKIP file itself
 ^MANIFEST\.SKIP$
-
 TODO
+
