@@ -29,14 +29,14 @@ BEGIN {
             if ( $ext =~ s/^(\s*\*\.)// ) {
                 my $save = $1;
                 if ( Text::Code::Registry::_isglob( $ext ) ) {
-                    $reg->register_globs( $save.$ext => @langs );
+                    $reg->register_glob( $save.$ext => $_ ) for @langs;
                 } else {
-                    $reg->register_extensions( $ext => @langs );
+                    $reg->register_extension( $ext => $_ ) for @langs;
                 }
             } elsif ( Text::Code::Registry::_isglob( $ext ) ) {
-                $reg->register_globs( $ext => @langs );
+                $reg->register_glob( $ext => $_ ) for @langs;
             } else {
-                $reg->register_names( $ext => @langs );
+                $reg->register_name( $ext => $_ ) for @langs;
             }
         }
         my $syntaxes = $kate->syntaxes;
@@ -94,6 +94,13 @@ Text::Code::Engine::Kate - Syntax::Highlight::Engine::Kate renderer for Text::Co
 =head1 DESCRIPTION
 
 See L<Text::Code|Text::Code> for details on how to use this.
+
+=head1 METHODS
+
+=head2 highlight
+
+Calls L<Syntax::Highlight::Engine::Kate|Syntax::Highlight::Engine::Kate> to
+perform the highlighting, and then returns the results.
 
 =head1 MODULE HOME PAGE
 

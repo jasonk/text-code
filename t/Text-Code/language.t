@@ -1,6 +1,6 @@
 #!env perl
 use strict; use warnings;
-use Test::Most tests => 17;
+use Test::Most tests => 11;
 use ok 'Text::Code';
 
 my @samples = (
@@ -10,9 +10,9 @@ my @samples = (
         interpreter_name    => 'perl',
         language            => 'Perl',
         extension           => 'pl',
-        _find_language_from_interpreter => 'Perl',
-        _find_language_from_filename    => undef,
-        _find_language_from_extension   => 'Perl',
+#        _find_language_from_interpreter => 'Perl',
+#        _find_language_from_filename    => undef,
+#        _find_language_from_extension   => 'Perl',
     },
     {
         args                => [
@@ -23,9 +23,9 @@ my @samples = (
         interpreter_name    => undef,
         language            => 'C',
         extension           => 'c',
-        _find_language_from_interpreter => undef,
-        _find_language_from_filename    => undef,
-        _find_language_from_extension   => 'C',
+#        _find_language_from_interpreter => undef,
+#        _find_language_from_filename    => undef,
+#        _find_language_from_extension   => 'C',
     },
     {
         args                => [ {

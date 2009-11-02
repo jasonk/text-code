@@ -27,21 +27,13 @@ has 'engine_map' => ( is => 'rw', isa => HashRef, default => sub { {} } );
 sub register_extension {
     my ( $self, $extension, $lang ) = @_;
     $extension =~ s/^\*\.//;
-    $self->_register( extension_map => $extension => $lang );
-}
-sub register_extensions {
-    my ( $self, $extension, @langs ) = @_;
-    $self->register_extension( $extension => $_ ) for @langs;
+    $self->_register( extension_map => lc( $extension ) => $lang );
 }
 
 sub prefer_extension {
     my ( $self, $extension, $lang ) = @_;
     $extension =~ s/^\*\.//;
-    $self->_prefer( extension_map => $extension => $lang );
-}
-sub prefer_extensions {
-    my ( $self, $extension, @langs ) = @_;
-    $self->prefer_extension( $extension => $_ ) for @langs;
+    $self->_prefer( extension_map => lc( $extension ) => $lang );
 }
 
 our $globre = qr/[\*\?\[\]]/;
@@ -52,18 +44,10 @@ sub register_name {
     return $self->register_glob( $name => $lang ) if _isglob( $name );
     $self->_register( name_map => $name => $lang );
 }
-sub register_names {
-    my ( $self, $extension, @langs ) = @_;
-    $self->register_name( $extension => $_ ) for @langs;
-}
 sub prefer_name {
     my ( $self, $name, $lang ) = @_;
     return $self->register_glob( $name => $lang ) if _isglob( $name );
     $self->_prefer( name_map => $name => $lang );
-}
-sub prefer_names {
-    my ( $self, $name, @langs ) = @_;
-    $self->prefer_name( $name => $_ ) for @langs;
 }
 
 sub register_glob {
@@ -71,35 +55,19 @@ sub register_glob {
     return $self->register_name( $glob => $lang ) unless $glob =~ $globre;
     $self->_register( glob_map => $glob => $lang );
 }
-sub register_globs {
-    my ( $self, $extension, @langs ) = @_;
-    $self->register_glob( $extension => $_ ) for @langs;
-}
 sub prefer_glob {
     my ( $self, $glob, $lang ) = @_;
     return $self->prefer_name( $glob => $lang ) unless $glob =~ $globre;
     $self->_prefer( glob_map => $glob => $lang );
-}
-sub prefer_globs {
-    my ( $self, $glob, @langs ) = @_;
-    $self->prefer_glob( $glob => $_ ) for @langs;
 }
 
 sub register_interpreter {
     my ( $self, $interpreter, $lang ) = @_;
     $self->_register( interpreter_map => $interpreter => $lang );
 }
-sub register_interpreters {
-    my ( $self, $interpreter, @langs ) = @_;
-    $self->register_interpreter( $interpreter => $_ ) for @langs;
-}
 sub prefer_interpreter {
     my ( $self, $interpreter, $lang ) = @_;
     $self->_prefer( interpreter_map => $interpreter => $lang );
-}
-sub prefer_interpreters {
-    my ( $self, $interpreter, @langs ) = @_;
-    $self->prefer_interpreter( $interpreter => $_ ) for @langs;
 }
 
 sub register_engine {
@@ -111,6 +79,7 @@ sub register_engine {
 has 'missing_engines' => ( is => 'ro', isa => HashRef, default => sub { {} } );
 sub register_missing_engine {
     my ( $self, $engine, $error ) = @_;
+    $self->missing_engines->{ $engine } = $error;
 }
 
 has 'loaded_engines' => ( is => 'ro', isa => HashRef, default => sub { {} } );
@@ -203,10 +172,6 @@ sub _detect_language_from_glob {
     return;
 }
 
-sub find_engine {
-    my ( $self, $tc ) = @_;
-}
-
 sub highlight {
     my ( $self, $tc ) = @_;
 
@@ -282,6 +247,87 @@ Text::Code::Registry - Highlight engine and language registry for Text::Code
 
 This is used internally by L<Text::Code|Text::Code>, you probably don't need
 to use it directly.
+
+=head1 METHODS
+
+=head2 register_extension / prefer_extension
+
+Registers an extension with the automatic language classifier.  See L</LANGUAGE
+CLASSIFICATION> for more details.  Note that extensions are always converted
+to lower case when being added to the map, and always compared in lower case,
+so you cannot differentiate between upper-case extensions and lower-case
+extensions.
+
+=head2 register_name / prefer_name
+
+Registers a file name with the automatic language classifier.
+See L</LANGUAGE CLASSIFICATION> for more details.
+
+=head2 register_glob / prefer_glob
+
+Registers a filename glob with the automatic language classifier.
+See L</LANGUAGE CLASSIFICATION> for more details.
+
+=head2 register_interpreter / prefer_interpreter
+
+Registers an interpreter name with the automatic language classifier.
+See L</LANGUAGE CLASSIFICATION> for more details.
+
+=head2 register_engine( 'Language', 'Engine::Class', @args );
+
+Registers a L<Text::Code::Engine|Text::Code::Engine> subclass to handle
+rendering for the given language.  The second argument is which subclass to
+use, and any arguments that follow it are simply recorded, and later used when
+calling C<< ->new >> on the L<Text::Code::Engine|Text::Code::Engine> subclass.
+
+=head2 detect_language( $text_code_object )
+
+Given a L<Text::Code|Text::Code> object, the detect_language method runs it
+through the automatic language classifier and then selects the best match
+of the possible languages.  See L</LANGUAGE CLASSIFICATION> for more details.
+
+=head2 detect_languages( $text_code_object );
+
+Given a L<Text::Code|Text::Code> object, the detect_languages method will
+return a list of the possible languages for that object, sorted in preference
+order (meaning the best match will be first in this list).
+
+=head2 languages
+
+Returns a (unordered) list of languages that the Registry knows about.
+
+=head2 engineless_languages;
+
+Returns a list of languages that the registry knows about, but for which there
+is no registered plugin to highlight that language.
+
+=head2 highlight
+
+This is a helper method that takes a L<Text::Code|Text::Code> object, finds
+the best matching engine to render it with, then passes it on to that engine,
+and returns the rendered HTML output.
+
+=head2 missing_engines
+
+This method returns a hashref where the keys are the class names of engines
+that couldn't be loaded (probably because they were missing prerequisite modlues) and the error message that was returned when attempting to load them.  This
+was part of a plan to make L<Text::Code|Text::Code> warn you when no engines
+could be loaded, though that isn't finished yet.
+
+# TODO
+
+=head2 register_missing_engine( $class, $error )
+
+This is a helper method that allows you to add an engine to the missing engines
+list.
+
+=head1 LANGUAGE CLASSIFICATION
+
+The prefer_extension method is just like L</register_extension>, except that
+the language associated with the extension is moved to the front of the
+search list for that extension, giving it priority.  Note that unlike
+register_extension, which doesn't add it again if it is already on the list,
+prefer_extension will move an existing entry to the front of the list.
 
 =head1 MODULE HOME PAGE
 

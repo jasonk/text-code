@@ -15,7 +15,7 @@ my @lazy_build_attrs = qw(
 can_ok( $code,
     qw(
         file basename BUILDARGS next_index_for_re
-        find_index section sections compute_coverage _print_covered
+        section sections compute_coverage _print_covered
         show_coverage html_coverage default_language
     ),
     ( map { ( '_build_'.$_, 'clear_'.$_, 'has_'.$_ ) } @lazy_build_attrs ),

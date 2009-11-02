@@ -4,12 +4,12 @@ use FindBin qw( $Bin );
 use lib "$Bin/lib";
 
 my $text = join( ' ', @ARGV ) || 'Hawaii is 4807 miles from Ashburn.';
-
+# foo
 $text =~ s{ \b ( (?:\d+)(?:\.\d+)? ) \s+ (kilometer|mile)s? }
           { convert( $1, $2 ) }xeg;
 
 print "$text\n";
-
+# bar
 sub convert {
     my ( $q, $l ) = @_;
 

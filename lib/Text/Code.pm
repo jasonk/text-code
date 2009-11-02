@@ -169,72 +169,49 @@ sub BUILDARGS {
 }
 
 sub next_index_for_re {
-    my ( $self, $re, $start ) = @_;
+    my $self = shift;
+    my $regexp = shift;
+    my $start = @_ ? shift : $self->position;
     $start ||= 1;
 
     my @raw = $self->raw_content;
-    for my $i ( ( $start - 1 ) .. $#raw ) {
-        if ( $raw[ $i - 1 ] =~ $re ) { return $i }
+    for my $i ( $start .. @raw ) {
+        if ( $raw[ $i - 1 ] =~ $regexp ) { return $i }
     }
     return undef; ## no critic
 }
 
-sub find_index {
-    my ( $self, $text, $start ) = @_;
+sub next_index_for_string {
+    my $self = shift;
+    my $string = shift;
+    my $start = @_ ? shift : $self->position;
     $start ||= 1;
 
-    $text =~ s/^\s*|\s*$//g;
-
-    my $re;
-    if ( $text =~ m{^/(.*)/(\w*)$} ) {
-        $re = eval "qr/$1/$2"; ## no critic
-        return $self->next_index_for_re( $re, $start );
-    } elsif ( $text =~ /^\-(\d+)$/ ) {
-        return $self->num_lines + 1 - $1;
-    } elsif ( $text =~ /^\+(\d+)$/ ) {
-        return $start + $1;
-    } else {
-        croak "Unable to find index from $text";
+    my @raw = $self->raw_content;
+    for my $i ( $start .. @raw ) {
+        if ( index( $raw[ $i - 1 ], $string ) >= 0 ) { return $i }
     }
 }
 
 sub section {
     my $self = shift;
-
-    my ( $start, $end );
-
-    if ( @_ == 1 && $_[0] =~ /^(.*)\s*\.\.\s*(.*)$/ ) {
-        ( $start, $end ) = ( $1, $2 );
-    } else {
-        $start = shift || 1;
-        $end = shift || $self->num_lines;
+    my $section;
+    if ( @_ == 2 ) {
+        $section = Text::Code::Section->new(
+            parent      => $self,
+            start_token => $_[0],
+            end_token   => $_[1],
+        );
+    } elsif ( @_ == 1 ) {
+        $section = Text::Code::Section->new(
+            parent      => $self,
+            selector    => $_[0],
+        );
+    } elsif ( @_ == 0 ) {
+        $section = Text::Code::Section->new( parent => $self );
     }
-
-    if ( $start =~ /^\s*$/ ) {
-        $start = 1;
-    } elsif ( $start =~ /^\d+$/ ) {
-        # no-op, already specifies a line number
-    } else {
-        $start = $self->find_index( $start, $self->position );
-    }
-
-    if ( $end =~ /^\s*$/ ) {
-        $end = $self->num_lines;
-    } elsif ( $end =~ /^\d+$/ ) {
-        # no-op
-    } else {
-        $end = $self->find_index( $end, $start + 1 );
-    }
-
-    state $subid = 1;
-    my $section = Text::Code::Section->new( {
-        parent      => $self,
-        start       => $start,
-        end         => $end,
-        id          => $self->id . '-' . $subid++,
-    } );
     push( @{ $self->sections }, $section );
-    $self->position( $end + 1 );
+    $self->position( $section->end_index + 1 );
     return $section;
 }
 
@@ -318,6 +295,19 @@ was split out as it became apparent that it could be very useful on it's own.
 
 =head1 CLASS METHODS
 
+=head2 Text::Code->import
+
+The import method provided by L<Text::Code|Text::Code> doesn't actually import
+any functions, but it does call L<Module::Find->useall|Module::Find/useall> to
+load all the installed L<Text::Code::Engine|Text::Code::Engine> subclasses.  If
+you only want to load specific engines, rather than loading them all, or you
+want to load them in a specific order, you can provide an empty set of
+parentheses when calling C<use Text::Code>, to prevent this automatic loading
+from occurring.
+
+    use Text::Code (); # no automatically loaded engines
+    use Text::Code::Engine::Kate; # only load the Kate engine
+
 =head2 Text::Code->REGISTRY()
 
 Returns the global L<Text::Code::Registry|Text::Code::Registry> object.
@@ -380,41 +370,238 @@ Returns just the filename portion of the file path.
 
 Returns just the directory portion of the file path.
 
+=head2 raw
+
+The raw source code you will be highlighting.  You can pass this as an argument
+to the constructor to build a L<Text::Code|Text::Code> object in memory for
+code that doesn't actually exist on disk.
+
 =head2 raw_content
+
+Returns an array ref consisting of one element in the array for each line of
+the original source code.
 
 =head2 has_raw_content
 
+Returns true if the raw_content array has been populated.
+
 =head2 clear_raw_content
+
+Clear the raw_content array.  You might need to do this if you change the
+L<raw|/raw> value and want it to be recomputed.
 
 =head2 html_content
 
+Returns an array ref consisting of one element in the array for each line of
+the original source code.  Unlike L<raw_content|/raw_content>, which simply
+breaks up the value from L<raw|/raw> into lines, this holds the rendered HTML
+output from the L<Text::Code::Engine|Text::Code::Engine> subclass that rendered
+it.
+
 =head2 has_html_content
+
+Returns true if the html_content array has been populated.  If this is true, it
+means the rendering is complete.
 
 =head2 clear_html_content
 
+Clear the html_content array.  Calling this removes the rendered output,
+allowing it to be re-rendered if other values have changed.
+
 =head2 language
+
+Get or set the language that the current code is written in (or at least the
+language that it should be syntax colored as).  If this is not set when it
+comes time to render (or if you ask for the language, and one has not been set)
+then the L<detect_language method of
+Text::Code::Registry|Text::Code::Registry/detect_language> will be called to
+attempt to determine the language.
 
 =head2 has_language
 
+Returns true if the language has been set.  This means either it was provided
+manually by you, or it has already been auto-detected by the
+L<registry|Text::Code::Registry/detect_language>.
+
 =head2 clear_language
+
+Clear the L<language|/language> setting, allowing it to be recalculated.
 
 =head2 num_lines
 
+Returns the number of lines of source code contained in this object.
+
 =head2 has_num_lines
+
+Returns true if the number of lines has been computed already.
 
 =head2 clear_num_lines
 
+Clear the number of lines value, which may be necessary if you change the
+source code that needs rendering.
+
 =head2 position
+
+The current position of the 'location memory' flag.  This allows you to step
+through code and ask for a section consisting of (for example) 'the next ten
+lines'.
 
 =head2 has_position
 
+Returns true if the position value is currently set, indicating that at least
+one section has been requested (or the position itself has been requested).
+
 =head2 clear_position
 
-=head2 next_index_for_re
+Clear the position memory flag, resetting the position to the beginning of the
+source code.
 
-=head2 find_index
+=head2 next_index_for_re( qr/some regexp/, $start )
+
+Given a regexp, returns the line index of the next line that matches that
+regexp, starting at line C<$start>.  If not specified, or false, then
+C<$start> defaults to 1.
+
+=head2 find_index( $text, $start )
+
+The find_index method implements the range locators necessary for the
+L<section|/section> method to return a chunk of the code.  The C<$text>
+argument is a scalar representation of a 'section locator' which is subject
+to the following rules:
+
+=over 4
+
+=item // - regexp
+
+If given a string that starts with a slash, and ends with a slash and
+optionally some following letters (i.e. a standard perl-style regexp, such as
+/foo/ or /bar/xi), returns the next index that matches that regexp, starting
+with the line indicated by C<$start>.
+
+=item -123 - negative number
+
+If given a number preceded by a dash, returns an index corresponding to that
+number of lines from the end of the code (similar to what happens when you
+provide a negative array subscript).  Note that in this case, the C<$start>
+value is ignored, and I haven't decided yet whether that is a bug or not.
+
+=item +321 - positive number
+
+If given a number preceded by a plus-sign, returns the index that is that
+number of lines from the start position.
+
+=back
+
+Note that you really shouldn't ever need to use L<find_index|/find_index>
+yourself, it is primarily called by L<section|/section> when attempting to
+locate a chunk of code.
+
+# TODO - these should probably make sure the value they return is not outside
+#        the range of 1-num_lines
 
 =head2 section
+
+The section method takes an argument (or arguments) indicating a range of lines
+to extract.  It returns a L<Text::Code::Section|Text::Code::Section> object
+that encapsulates those lines.
+
+In order to extract a section, you have to specify the starting and ending
+indexes of the section you want to extract.  If you provide two arguments, they
+are assumed to be the start and end indicators.  If you provide only one
+argument then it is checked to see whether it contains a 'range indicator'.  If it does, then the string is split on the range indicator and the two parts become the start and end indicators.
+
+The string contains a range indicator if it matches either C<qr/\.\./> or C<qr/ - />.  Note that in the second case there MUST be white space on both sides of the dash.
+
+If you provide only one argument, and it does not contain a range indicator,
+then the argument provided will be interpreted as the starting point, and the
+ending point will be set to '+0', resulting in you getting back a section
+consisting of only one line.
+
+Note that after the arguments are parsed, if the resulting ending index is
+smaller than the starting index, then the values will be swapped.
+
+=head3 STARTING INDEX
+
+The first argument is the starting index (C<$start>).
+
+If C<$start> is empty or contains only whitespace, then the section will
+start with the L<current position|/position>.
+
+If C<$start> contains an integer (with no prefix, or prefixed with an at-sign),
+then that number will be used as the starting index.
+
+If C<$start> contains an integer preceded by a hash sign (C<#>), then the line
+number that corresponds to that integer will be used as the starting index.
+(See L</LINE NUMBERING|LINE NUMBERING> for more information about line
+numbers).
+
+If C<$start> contains a number preceded by a plus or minus sign, then the
+startining index will be set to that number of lines before or after the
+L<current position|/position>.
+
+If C<$start> starts with a forward slash, then it will be interpreted as a
+regular expression, and the starting index will be the next line (after the
+L<current position|/position> that matches the regexp.
+
+Any other value will result in an exception.
+
+=head3 ENDING INDEX
+
+The second argument is the ending index (C<$end>).
+
+If C<$end> is empty or contains only whitespace, then the section will end with
+the last line of code.
+
+If C<$end> contains an integer, then that number wll be used as the ending
+index.
+
+If C<$end> contains an integer preceded by a hash sign (C<#>), then the line
+number that corresponds to that integer will be used as the ending index.
+(See L</LINE NUMBERING|LINE NUMBERING> for more information about line
+numbers).
+
+If C<$end> contains a number preceded by a plus or minus sign, then the
+ending index will be set to that number of lines before or after the
+starting index.  Note that unlike the starting index, which is relative to
+the current position, the ending index is relative to the starting index.  This allows you to do things like C<< my $section = $tc->section( '..+5' ) >>.
+
+If C<$end> starts with a forward slash, then it will be interpreted as a
+regular expression, and the ending index will be the next line (after the
+starting index) that matches the regexp.
+
+Any other value will result in an exception.
+
+=head3 LINE NUMBERING
+
+There needs to be a bit of a description as to how line numbering affects the
+starting and ending index selectors when requesting a section.  You can
+indicate an index using either an index number (C<< ->section( 105 ) >>), or a
+line number (C<< ->section( '#105' ) >>).  The difference between these two
+values has to do with the setting of the
+L<starting_line_number|/starting_line_number> attribute.  If
+starting_line_number is 1 (the default), then '105' and '#105' both refer to
+the 105th line of the source code file (i.e. C<< $tc->raw_content->[104] >>).
+If, however, starting_line_number is not 1, then the line numbers don't line up
+with their indexes.  So if L<starting_line_number|/starting_line_number> is set to '100', then C<< ->section( '105' ) >> will now return the line that would be displayed as line number 205 when it is rendered, while C<< ->section( '#105' ) >> 
+
+=head3 SECTION EXAMPLES
+
+Here are some examples of arguments you can provide to the ->section method,
+and how they will be interpreted.
+
+=over 4
+
+=item 1..10
+
+The first 10 lines of the code.
+
+    if ( $end =~ /^\s*$/ ) {
+        $end = $self->num_lines;
+    } elsif ( $end =~ /^\d+$/ ) {
+        # no-op
+    } else {
+        $end = $self->find_index( $end, $start + 1 );
+    }
 
 =head2 sections
 
@@ -431,17 +618,6 @@ the language for a file have failed.  If this is set for an object, then the
 language classifier will prefer this value as a default rather than using the
 default_language value from
 L<Text::Code::Registry|Text::Code::Registry/default_language>.
-
-=head1 INTERNAL METHODS
-
-These are methods you probably don't need to worry about unless you are
-subclassing the module.
-
-=head2 BUILDARGS
-
-See L<BUILDARGS in Moose::Object|Moose::Object/BUILDARGS>.
-
-=head2 _print_covered
 
 =head1 MODULE HOME PAGE
 
